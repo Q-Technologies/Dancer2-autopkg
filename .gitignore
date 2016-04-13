@@ -1,0 +1,15 @@
+*_sysconfig
+logs/*
+hosts.backup/*
+*.log
+*.rpm
+client.yml
+config.yml
+production.yml
+development.yml
+testing
+RPMS
+start_packager.sh
+stop_packager.sh
+*.spec
+start.sh

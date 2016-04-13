@@ -1,0 +1,18 @@
+# configuration file for development environment
+
+startup_info: 1
+log: "core"
+logger: "file"
+warnings: 1
+show_errors: 1
+auto_reload: 0
+no_server_tokens: 0
+
+# Custom variables
+top_level_dir: "/code/Dancer/autopkg/testing/autopkg"
+repo_dir: "/code/Dancer/autopkg/testing/repo/apps/from-nexus"
+debug_level: 2
+web_log_file: "logs/access.log"
+pkg_log_file: "logs/pkg.log"
+pkg_dlog_file: "logs/pkg_daemon.log"
+pkg_queue_sleep: 10

@@ -1,0 +1,23 @@
+# configuration file for production environment
+
+startup_info: 0
+log: "core"
+logger: "file"
+warnings: 0
+show_errors: 0
+auto_reload: 0
+no_server_tokens: 1
+
+engines:
+  logger:
+    File:
+      log_dir: "/var/log/autopkg"
+
+# Custom variables
+top_level_dir: "/autopkg"
+repo_dir: "/repo/apps/from-nexus"
+debug_level: 0
+web_log_file: "/var/log/autopkg/access.log"
+pkg_log_file: "/var/log/autopkg/pkg.log"
+pkg_dlog_file: "/var/log/autopkg/pkg_daemon.log"
+pkg_queue_sleep: 30

@@ -1,0 +1,30 @@
+---
+Name:           autopkg
+Version:        1.0.2
+Release:        1.0.2
+License:        Artistic
+Summary:        "OS Package maker web service"
+Group:          "Applications/System"
+Description: |
+  This package provides a web service that enables the packaging of applications through a web service.  See
+  https://github.com/Q-Technologies/autopkg for more details.
+BuildArch:      noarch
+BuildRoot:      %{_tmppath}/%{name}-build
+Url:            "https://github.com/Q-Technologies/autopkg"
+Author:         Q-Technologies
+SrcDir:         "/code/Dancer/autopkg/"
+PkgDir:         "/code/Dancer/autopkg/packaging"
+InstallRoot:    "/opt/autopkg"
+IncFiles:       ".*\.(p[lm]|yml|js|tt|png|gif|css|html)$"
+ExcFiles:       "\.DS_Store|development"
+ExcDirs:        "\.git|testing|packaging|client_scripts"
+ConfMode:       "600"
+DocIncFiles:    "LICENSE|.*README.*|.*\.md$"
+RunAs:
+  username: autopkg
+  home: "/opt/autopkg"
+Requires:       localperl
+LogDir:         1
+RCFile:         1
+CronFile:       0
+ChangeLog:      "- initial version (1.0)"

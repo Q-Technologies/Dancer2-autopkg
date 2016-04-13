@@ -1,0 +1,9 @@
+DANCER_EXEC="/usr/local/perl/bin/plackup"
+APPDIR=/opt/autopkg/
+PERL5LIB=/usr/local/perl/lib/perl5:/usr/local/perl/lib/perl5/x86_64-linux-thread-multi
+USER=autopkg
+GROUP=autopkg
+ENVIRONMENT=production
+PORT=3009
+WORKERS=4
+HOST=localhost

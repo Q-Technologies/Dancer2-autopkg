@@ -1,0 +1,29 @@
+# This is the main configuration file of your Dancer2 app
+# env-related settings should go to environments/$env.yml
+# all the settings in this file will be loaded at Dancer's startup.
+
+appname: "autopkg"
+layout: "main"
+charset: "UTF-8"
+session: "YAML"
+behind_proxy: 1
+
+template: "template_toolkit"
+engines:
+  template:
+    template_toolkit:
+      start_tag: '[%'
+      end_tag:   '%]'
+  session:
+    YAML:
+      session_dir: "/tmp/autopkg-sessions"
+      session_expires: time() + 3600
+
+plugins:
+  Ajax:
+    content_type: 'application/json'
+
+# Custom variables
+user: "username"
+pass: "password"
+web_log_format: "%t %h \"%{User-agent}i\" \"%{X-Requested-Using}i\" \"%{X-Requested-Source}i\""

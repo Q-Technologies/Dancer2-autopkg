@@ -1,0 +1,136 @@
+#!/bin/sh
+#
+# autopkg
+#
+# chkconfig:   345 99 1
+# description: script to start the Dancer2 PSGI apps
+
+### BEGIN INIT INFO
+# Provides:
+# Required-Start: $network
+# Required-Stop:
+# Should-Start:
+# Should-Stop:
+# Default-Start: 3 4 5
+# Default-Stop: 0 1 2 6
+# Short-Description: script to start the Dancer2 PSGI apps
+# Description:      script to start the Dancer2 PSGI apps
+### END INIT INFO
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Set the program name
+prog=autopkg
+prog2=autopkg-packager
+
+# Source configuration
+. /etc/sysconfig/$prog
+
+# Set up the lockfile
+lockfile=/var/run/${prog}.pid
+lockfile2=/var/run/${prog2}.pid
+
+start() {
+    [ -x $DANCER_EXEC ] || exit 5
+    echo -n $"Starting $prog: "
+    PERL5LIB=$PERL5LIB $DANCER_EXEC -s Starman -a $APPDIR/bin/app.pl -I $APPDIR/lib -E $ENVIRONMENT -l $HOST:$PORT --workers=$WORKERS -D --pid $lockfile --user $USER --group $GROUP
+    retval=$?
+    echo -n $"Starting $prog2: "
+    DANCER_ENVIRONMENT=$ENVIRONMENT DANCER_CONFDIR=$APPDIR DANCER_ENVDIR=$APPDIR/environments PERL5LIB=$PERL5LIB $APPDIR/bin/packager.pl --start -u $USER -g $GROUP --pid $lockfile2
+    retval2=$?
+    echo
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
+
+status() {
+    if [[ $(pgrep -P $(cat $lockfile) | wc -l) -lt 1 ]]; then
+	    echo $prog is not running
+        retval=1
+    else
+	    echo $prog is running with the following procs:
+        ps -f --ppid $(cat $lockfile)
+        retval=0
+    fi
+    if [[ $(pgrep -P $(cat $lockfile2) | wc -l) -lt 1 ]]; then
+	    echo $prog2 is not running
+        retval2=1
+    else
+	    echo $prog2 is running with the following procs:
+        ps -f --ppid $(cat $lockfile2)
+        retval2=0
+    fi
+    return $retval
+}
+
+stop() {
+    echo -n $"Stopping $prog: "
+    if [[ -r $lockfile ]]; then
+        kill $(cat $lockfile)
+    fi
+    retval=$?
+    echo -n $"Stopping $prog2: "
+    DANCER_ENVIRONMENT=$ENVIRONMENT DANCER_CONFDIR=$APPDIR DANCER_ENVDIR=$APPDIR/environments PERL5LIB=$PERL5LIB $APPDIR/bin/packager.pl --stop --pid $lockfile2
+    retval2=$?
+    rm -f $lockfile
+    rm -f $lockfile2
+    echo
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    restart
+}
+
+force_reload() {
+    restart
+}
+
+rh_status() {
+    # run checks to determine if the service is running or use generic status
+    status $prog
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    reload)
+        rh_status_q || exit 7
+        $1
+        ;;
+    force-reload)
+        force_reload
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
+        exit 2
+esac
+exit $?
