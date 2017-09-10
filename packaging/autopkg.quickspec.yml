@@ -1,7 +1,7 @@
 ---
 Name:           autopkg
-Version:        1.0.2
-Release:        1.0.2
+Version:        1.0.3
+Release:        1.0.0
 License:        Artistic
 Summary:        "OS Package maker web service"
 Group:          "Applications/System"

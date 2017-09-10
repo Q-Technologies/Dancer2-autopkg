@@ -16,6 +16,7 @@ use FindBin;
 use lib "$FindBin::Bin/../lib";
 use Dancer2;
 use autopkg;
+use qutil;
 use Cwd;
 use 5.10.0;
 
@@ -44,15 +45,11 @@ if( ! $ENV{DANCER_CONFDIR} or ! $ENV{DANCER_ENVIRONMENT} ){
 }
 
 # set the variables according to the settings
-$autopkg::queue_db_file = setting( 'queue_db_file' );
-my $daemon_log = setting( 'pkg_dlog_file' );
-$autopkg::pkg_log_file = setting( 'pkg_log_file' );
-$autopkg::pkg_log_file = cwd()."/".$autopkg::pkg_log_file if( $autopkg::pkg_log_file !~ /^\//);
-$autopkg::top_level_dir = setting( 'top_level_dir' );
-$autopkg::top_level_dir = cwd()."/".$autopkg::top_level_dir if( $autopkg::top_level_dir !~ /^\//);
-$autopkg::repo_dir = setting( 'repo_dir' );
-$autopkg::repo_dir = cwd()."/".$autopkg::repo_dir if( $autopkg::repo_dir !~ /^\//);
 my $queue_sleep = setting( 'pkg_queue_sleep' );
+my $daemon_log = setting( 'pkg_dlog_file' );
+#pkg_log_file( cwd()."/".pkg_log_file ) if( pkg_log_file !~ /^\//);
+#top_level_dir( cwd()."/".top_level_dir ) if( top_level_dir !~ /^\//);
+#repo_dir( cwd()."/".repo_dir ) if( repo_dir !~ /^\//);
 
 # See if the script has been told to run a a different user
 my $uid = $<;
@@ -73,9 +70,9 @@ if( ( $start and $stop ) or ( ! $start and ! $stop )){
     say "Starting...";
 
     # Go into Daemon mode
-    daemonize();
+    #daemonize();
     my $continue = 1;
-    $SIG{TERM} = sub { $continue = 0 };
+    #$SIG{TERM} = sub { $continue = 0 };
     
     # Process the queue until we are told to stop
     while ($continue) {

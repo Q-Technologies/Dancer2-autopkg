@@ -17,6 +17,7 @@ package autopkg::api;
 use Dancer2;
 use Dancer2::Plugin::Ajax;
 use autopkg;
+use qutil;
 use Data::Dumper;
 use File::Basename;
 use POSIX qw(strftime);
@@ -26,10 +27,6 @@ use constant SUCCESS => "success";
 use constant FAILED => "failed";
 
 set serializer => 'JSON';
-# Get Settings
-$autopkg::debug_level = setting( 'debug_level' );
-$autopkg::top_level_dir = setting( 'top_level_dir' );
-$autopkg::queue_db_file = setting( 'queue_db_file' );
 
 our $VERSION = '0.1';
 
@@ -140,30 +137,4 @@ ajax '/getstatus' => sub {
 
 };
 
-sub check_login {
-    my $result = FAILED;
-    my $msg;
-    my $userid = param "userid";
-    my $passwd = param "passwd";
-    my $user = setting( 'user' );
-    my $pass = setting( 'pass' );
-
-    say "Submitted credentials: ".join( " - ", $userid, $passwd ) if $autopkg::debug_level > 1;
-    if( ( ! session('logged_in') or session('logged_in') ne 'true' )
-        and     
-        !($pass eq $passwd 
-        and 
-        $user eq $userid) 
-      ){
-        $msg = "ERROR: you must be logged in to do something!";
-    } else {
-        session logged_in => 'true';
-        $result = SUCCESS;
-        $msg = "Successfully logged in and session started";
-    }
-    debug $msg if $autopkg::debug_level > 0;
-    return ( $result, $msg );
-}
-
-
-true;
+1;

@@ -86,9 +86,9 @@ Other errors might occur where an unexpected condition was met - this would usua
 
 ## Installation
 
-Install the RPM (nodeps is required as RPM will automatically make any perl modules reference into dependencies, which is a problem if you have installed those modules through CPAN):
+Install the RPM (it assumes you have a perl installation with all the required modules in a package called perlbrew):
 
-    rpm -ivh --nodeps autopkg-1.0-1.0.noarch.rpm
+    rpm -ivh autopkg-1.0-1.0.noarch.rpm
 
 ### Prepare Environment
 
@@ -104,7 +104,7 @@ In `./environments/production.yml`, set the `top_level_dir` and `repo_dir`, e.g.
     top_level_dir: "/autopkg"
     repo_dir: "/repo/apps/from_nexus"
 
-Make sure the user autopkg is running as (fcollect, byt default) has permissions to write to this directory:
+Make sure the user autopkg is running as (autopkg, by default) has permissions to write to this directory:
 
     mkdir /autopkg
     chown autopkg /autopkg

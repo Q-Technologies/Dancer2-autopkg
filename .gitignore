@@ -4,7 +4,7 @@ hosts.backup/*
 *.log
 *.rpm
 client.yml
-config.yml
+config*.yml
 production.yml
 development.yml
 testing
@@ -13,3 +13,4 @@ start_packager.sh
 stop_packager.sh
 *.spec
 start.sh
+autopkg-packager.pid
