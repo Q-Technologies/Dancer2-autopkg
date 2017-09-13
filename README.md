@@ -7,7 +7,7 @@ The testing service sends an AJAX request to this service.  Inside the AJAX requ
 **autopkg** is written in Perl using the [Dancer2](http://perldancer.org) Web Framework (a lightweight framework based on Sinatra for Ruby).  **autopkg** does not provide a web browser interface, but JSON can be sent and received as XMLHttpRequest object.  See https://github.com/Q-Technologies/autopkg for full details.
 
 It security model is simple:
-  * a single userid and password
+  * an access code and key
   * any encyption is to be provided by the web server proxying the service
 
 ## Usage
@@ -18,37 +18,33 @@ The AJAX request needs to contain JSON along these lines.  All, but ChangeLog, L
       "PayLoad" : [
          {
             "Name" : "JavaApp",
+            "Version" : "6.5.0",
             "Release" : "1.0.2",
             "InstallRoot" : "/home/tomcat/blah",
             "ChangeLog" : "- initial version (1.0)",
             "Description" : "This package is used to install the WAR files onto the system",
             "Author" : "Random Build System",
             "License" : "Artistic",
-            "Version" : "6.5.0",
             "Files" : [
                 {
                     "Owner" : "tomcat:tomcat",
-                    "RelPath" : "file.war",
                     "Perms" : "0644",
                     "SrcUrl" : "http://nexus/path/to/file.war"
                 },
                 {
                     "SrcUrl" : "http://nexus/path/to/file2.war",
                     "Perms" : "0644",
-                    "RelPath" : "subdir/file2.war",
                     "Owner" : "tomcat:tomcat"
                 }
             ],
             "Target" : {
-                "Platform" : "Java",
-                "Release" : "1.7",
                 "Package" : "rpm",
                 "Arch" : "noarch"
             },
         }
     ],
         "Action" : "override",
-        "Event" : "org.sonatype.nexus.proxy.events.RepositoryItemEventStoreCreate",
+        "Event" : "from jenkins",
     }
 
 Once the request is received, the payload will be stored in a sqlite database - this allows the web request to be returned quickly.  Queries can be sent to find out what the status is of the payload.
@@ -86,19 +82,37 @@ Other errors might occur where an unexpected condition was met - this would usua
 
 ## Installation
 
-Install the RPM (it assumes you have a perl installation with all the required modules in a package called perlbrew):
-
-    rpm -ivh autopkg-1.0-1.0.noarch.rpm
-
 ### Prepare Environment
 
-Install the following PERL modules:
+Install the following PERL modules (or more depending on what you have installed already):
   * Dancer2
   * Dancer2::Plugin::Ajax
 
-Update PERL5LIB in the `/etc/sysconfig/autopkg` file with the path for additional PERL modules.
 
-### Set the location of the dropped file root
+### Manually
+
+```
+cd /opt/
+git clone git remote add origin https://github.com/Q-Technologies/Dancer2-autopkg.git
+cd Dancer2-autopkg
+# Customise config_local.yml and the files in the environment directory
+DANCER_ENVIRONMENT=development
+DANCER_ENVDIR=/opt/Dancer2-autopkg/environments
+DANCER_CONFDIR=/opt/Dancer2-autopkg
+perl bin/packager.pl --pid /tmp/p.pid --start
+plackup -a bin/app.pl -I lib -l :3009
+```
+
+
+### RPM
+
+Install the RPM (it assumes you have a perl installation with all the required modules in a package called perlbrew), though it depends on the specfile used to build the RPM:
+
+    rpm -ivh autopkg-1.0-1.0.noarch.rpm
+
+Update PERL5LIB in the `/etc/sysconfig/autopkg` file with the path for additional PERL modules, if required
+
+#### Set the locations of key directories
 In `./environments/production.yml`, set the `top_level_dir` and `repo_dir`, e.g.:
 
     top_level_dir: "/autopkg"
@@ -112,7 +126,7 @@ Make sure the user autopkg is running as (autopkg, by default) has permissions t
 
 ## Maintenance
 ### Changing the password
-Change the password in the `config.yml` file and restart the web service.  Also change the password in any client scripts submitting data.
+Change the password in the `config_local.yml` file and restart the web service.  Also change the password in any client scripts submitting data.
 
 ## Missing Features
 
