@@ -1,6 +1,6 @@
 ---
 Name:           autopkg
-Version:        1.0.3
+Version:        1.0.6
 Release:        1.0.0
 License:        Artistic
 Summary:        "OS Package maker web service"
@@ -21,9 +21,11 @@ ExcDirs:        "\.git|testing|packaging|client_scripts"
 ConfMode:       "600"
 DocIncFiles:    "LICENSE|.*README.*|.*\.md$"
 RunAs:
-  username: autopkg
-  home: "/opt/autopkg"
-Requires:       localperl
+  username: yumrepo
+  home: "/home/yumrepo"
+Requires:       
+  - perlbrew
+NoAutoReqProv:  1
 LogDir:         1
 RCFile:         1
 CronFile:       0

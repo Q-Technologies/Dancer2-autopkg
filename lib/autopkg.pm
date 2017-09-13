@@ -41,6 +41,10 @@ use constant COMPLETED_WITH_ERRORS => 3;
 # Define globals
 our $VERSION = '0.1';
 my @log;
+my $file_cmd = '/usr/bin/file';
+my $unzip_cmd = '/usr/bin/unzip';
+my $gunzip_cmd = '/usr/bin/gunzip';
+my $tar_cmd = '/usr/bin/tar';
 
 # Define variables to hold settings
 our $queue_db_file;
@@ -87,6 +91,7 @@ sub BUILD {
         $self->queue_db_file( $self->app->config->{queue_db_file} );
     }
     #say Dumper( $self );
+
 }
 
 
@@ -174,6 +179,9 @@ sub queue_job {
     my $self = shift;
     my $data = shift;
     my $subdir = shift;
+
+    $self->check_or_create_db;
+
     my $dbfile = top_level_dir."/".$self->queue_db_file;
     my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","") or die $!;
     my $sth = $dbh->prepare("INSERT INTO queue (payload,status) VALUES (?, 0)");
@@ -228,8 +236,12 @@ sub process_pkg_queue {
     my $overall_status;
     my $overall_message;
 
+    $self->check_or_create_db;
+
     # Open a log file - helpful while debugging in daemon mode
-    open LOG, ">>".$self->pkg_log_file or die $!;
+    say $self->pkg_log_file;
+    my $log;
+    open $log, ">>".$self->pkg_log_file or die $!;
 
     # Find the payloads waiting to be processed
     my $dbfile = top_level_dir."/".$self->queue_db_file;
@@ -246,44 +258,49 @@ sub process_pkg_queue {
     $self->update_status( PROCESSING, "", { status => WAITING } );
 
     # Keep a list of repositories to be updated
-    my %repos;
+    my $repos = {};
 
     # Process each of the payloads
     for my $row ( @$table ){
-        my $status;
-        my $message;
 
         my( $job_id, $payload_json ) = @$row;
         my $payload = decode_json( $payload_json ) or die $!;
         my $i;
-        OUTER: for my $sub_job( @$payload ){
+        for my $sub_job( @$payload ){
             $i++;
-            say LOG "JOB: ". $job_id . ", SUBJOB: ", $i;
-            if( $sub_job->{Target}{Package} eq "rpm" ){
-                # Build RPM
-                my $rpm =  "$sub_job->{Name}-$sub_job->{Version}-$sub_job->{Release}.$sub_job->{Target}{Arch}.rpm";
-                say LOG "\tBuilding RPM for $rpm";
-                make_path(top_level_dir."/rpmbuild/SPECS/", { mode => 0755 });
-                make_path(top_level_dir."/rpmbuild/SOURCES/", { mode => 0755 });
-                make_path(top_level_dir."/rpmbuild/BUILD/", { mode => 0755 });
-                my $specfile = top_level_dir."/rpmbuild/SPECS/$sub_job->{Name}.spec";
-                for my $file ( @{$sub_job->{Files}} ){
-                    my( $owner, $group ) = ( 'root', 'root' );
-                    my $perms = '0644';
-                    ( $owner, $group ) = split /:/, $file->{owner} if $file->{owner};
-                    my $path = $sub_job->{InstallRoot}."/".$file->{RelPath};
-                    $file->{RelPath} =~ s/^\///;
-                    my $src = $file->{SrcUrl};
-                    $perms = $file->{Perms} if $file->{Perms};
-                    my $rel_path = top_level_dir."/rpmbuild/SOURCES/".$file->{RelPath};
-                    my $output = `curl -s -S -k --noproxy \\* -o '$rel_path' --create-dirs '$file->{SrcUrl}' 2>&1`;
-                    $self->update_status( COMPLETED_WITH_ERRORS, $output, { job_id => $job_id } ) && next OUTER if( $output );
-                }
-                $sub_job->{Group} = "Applications/Internet" if ! $sub_job->{Group};
-                $sub_job->{License} = "Proprietory" if ! $sub_job->{License};
-                $sub_job->{ChangeLog} = "n/a" if ! $sub_job->{ChangeLog};
-                open SPEC, ">$specfile" or die $!;
-                print SPEC <<SPECFILE;
+            say $log "JOB: ". $job_id . ", SUBJOB: ", $i;
+            $self->process_payload(
+                                     sub_job => $sub_job,
+                                     log => $log,
+                                     job_id => $job_id,
+                                     repos => $repos,
+                                     overall_status => $overall_status,
+                                   );
+        }
+    }
+    if( $overall_status > 0 ){
+        for my $repo ( keys %{ $repos } ){
+            # Create yum repo
+            my $cmd = "/usr/bin/createrepo $repo";
+            my $output = `$cmd 2>&1`;
+            if( $output !~ /complete/ ){
+                say $log "\tThere was an error creating the repo ($repo): $output";
+            }
+        }
+
+    }
+    close $log;
+    
+    
+}
+sub build_rpm {
+    my $self = shift;
+    my %args = @_;
+    my $specfile = $args{specfile};
+    my $sub_job = $args{sub_job};
+    my $file_list = $args{file_list};
+    open SPEC, ">$specfile" or die $!;
+    print SPEC <<SPECFILE;
 Name:           $sub_job->{Name}
 Version:        $sub_job->{Version}
 Release:        $sub_job->{Release}
@@ -292,103 +309,175 @@ Summary:        $sub_job->{Description}
 Group:          $sub_job->{Group}
 License:        $sub_job->{License}
 SPECFILE
-                my $j = 0;
-                for my $file ( @{$sub_job->{Files}} ){
-                    print SPEC <<SPECFILE;
-Source$j:        $file->{RelPath}
+    my $j = 0;
+    for my $file ( @{$file_list} ){
+        print SPEC <<SPECFILE;
+Source$j:        '$file'
 SPECFILE
-                    $j++;
-                }
-                print SPEC <<SPECFILE;
+        $j++;
+    }
+    print SPEC <<SPECFILE;
 Prefix:         $sub_job->{InstallRoot}
 %description
 $sub_job->{Description}
 
 %install
+find \$RPM_BUILD_ROOT -name .DS_Store -delete
 SPECFILE
-                for my $file ( @{$sub_job->{Files}} ){
-                    print SPEC <<SPECFILE;
-mkdir -p \$(dirname \$RPM_BUILD_ROOT/$sub_job->{InstallRoot}/$file->{RelPath} )
-install -m 644 \$RPM_SOURCE_DIR/$file->{RelPath} \$RPM_BUILD_ROOT/$sub_job->{InstallRoot}/$file->{RelPath}
+    for my $file ( @{$file_list} ){
+        print SPEC <<SPECFILE;
+mkdir -p \$(dirname \$RPM_BUILD_ROOT/'$sub_job->{InstallRoot}/$file' )
+install -m 644 \$RPM_SOURCE_DIR/'$file' \$RPM_BUILD_ROOT/'$sub_job->{InstallRoot}/$file'
 SPECFILE
-                }
-                print SPEC <<SPECFILE;
+    }
+    print SPEC <<SPECFILE;
 
 %clean
+find \$RPM_BUILD_ROOT -name .DS_Store -delete
 rm -rf \$RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root,-)
 $sub_job->{InstallRoot}
 SPECFILE
-                for my $file ( @{$sub_job->{Files}} ){
-                    print SPEC <<SPECFILE;
-$sub_job->{InstallRoot}/$file->{RelPath}
+    for my $file ( @{$file_list} ){
+        print SPEC <<SPECFILE;
+$sub_job->{InstallRoot}/$file
 SPECFILE
-                }
-                print SPEC <<SPECFILE;
+    }
+    print SPEC <<SPECFILE;
 %doc
 SPECFILE
 #%changelog
 #* $sub_job->{ChangeLog}
-                close SPEC;
-                my $cmd = "rpmbuild --define '_topdir ".top_level_dir."/rpmbuild' -bb --quiet --clean --rmsource --rmspec $specfile";
-                my $output = `$cmd 2>&1`;
-                print $output;
-                if( $output =~ /error/i ){
-                    say LOG "\tThere was an error producing the RPM: $output";
-                    $status = COMPLETED_WITH_ERRORS;
-                } else {
-                    my $rel_path;
-                    if( $sub_job->{YumRepository} ){
-                        $rel_path = join( '/', $self->repo->{rel_path}, $sub_job->{YumRepository} );
-                    } else {
-                        $rel_path = join( '/', $self->repo->{rel_path}, $sub_job->{Target}{Platform}, $sub_job->{Target}{Release} );
-                    }
-                    my $repo = join( '/', $self->repo->{dir}, $rel_path );
-                    my $repo_url = join( '/', $self->repo->{served_at}, $rel_path );
-                    my $rpm_url = join( '/', $repo_url, $rpm );
-                    say $repo;
-                    say $rpm;
-                    say $repo_url;
-                    $rpm_url =~ s|([^:])/+|$1/|g;
-                    say $rpm_url;
-                    make_path("$repo", { mode => 0755 });
-                    if( move( top_level_dir."/rpmbuild/RPMS/$sub_job->{Target}{Arch}/$rpm", "$repo/$rpm") ){
-                        $self->update_rpm_url( $rpm_url, $job_id );
-                        $status = COMPLETED_OK;
-                        $overall_status++;
-                    } else {
-                        $status = COMPLETED_WITH_ERRORS;
-                        $message = $!;
-                    }
-                    # Add the destination directory to the list of repositories to be updated at the end
-                    $repos{$repo} = 'blah';
-                }
-                $self->update_status( $status, $message, { job_id => $job_id } );
-                next OUTER if $status == COMPLETED_WITH_ERRORS;
-            } else {
-                # Unknown Package format
-                $message = "Error: Unknown packaging format: $sub_job->{Target}{Package}";
-                say LOG "\t$message";
-                $self->update_status( COMPLETED_WITH_ERRORS, $message, { job_id => $job_id } );
-            }
-        }
-    }
-    if( $overall_status > 0 ){
-        for my $repo ( keys %repos ){
-            # Create yum repo
-            my $cmd = "/usr/bin/createrepo $repo";
-            my $output = `$cmd 2>&1`;
-            if( $output !~ /complete/ ){
-                say LOG "\tThere was an error creating the repo ($repo): $output";
-            }
-        }
+    close SPEC;
 
+
+    my $cmd = "rpmbuild --define '_topdir ".top_level_dir."/rpmbuild' -bb --quiet --clean --rmsource --rmspec $specfile";
+    #my $cmd = "rpmbuild --define '_topdir ".top_level_dir."/rpmbuild' -bb --clean $specfile";
+    my $output = `$cmd | grep -vi warning 2>&1`;
+    #print $output;
+
+    return $output;
+}
+
+sub process_payload {
+    my $self = shift;
+    my %args = @_;
+    my $log = $args{log};
+    my $sub_job = $args{sub_job};
+    my $job_id = $args{job_id};
+    my $repos = $args{repos};
+    my $overall_status = $args{overall_status};
+    my $status;
+    my $message;
+
+    if( $sub_job->{Target}{Package} eq "rpm" ){
+        # Build RPM
+        my $rpm =  "$sub_job->{Name}-$sub_job->{Version}-$sub_job->{Release}.$sub_job->{Target}{Arch}.rpm";
+        say $log "\tBuilding RPM for $rpm";
+        make_path(top_level_dir."/rpmbuild/SPECS/", { mode => 0755 });
+        make_path(top_level_dir."/rpmbuild/SOURCES/", { mode => 0755 });
+        make_path(top_level_dir."/rpmbuild/BUILD/", { mode => 0755 });
+        my $specfile = top_level_dir."/rpmbuild/SPECS/$sub_job->{Name}.spec";
+        my $file_list = [];
+        for my $file ( @{$sub_job->{Files}} ){
+            my( $owner, $group ) = ( 'root', 'root' );
+            my $perms = '0644';
+            ( $owner, $group ) = split /:/, $file->{owner} if $file->{owner};
+            $perms = $file->{Perms} if $file->{Perms};
+            if( $file->{RelPath} ){
+                $file->{RelPath} =~ s/^\///;
+            } else {
+                $file->{RelPath} = (split /\//, $file->{SrcUrl} )[-1];
+            }
+            my $downloaded_file_path = top_level_dir."/rpmbuild/SOURCES/".$file->{RelPath};
+            my $output = `curl -s -S -k --noproxy \\* -o '$downloaded_file_path' --create-dirs '$file->{SrcUrl}' 2>&1`;
+            $self->update_status( COMPLETED_WITH_ERRORS, $output, { job_id => $job_id } ) && return if( $output );
+            my $file_type = join( "\n", `$file_cmd $downloaded_file_path` );
+            chdir top_level_dir."/rpmbuild/SOURCES/" or ( $self->update_status( COMPLETED_WITH_ERRORS, "Failed to chdir into ".top_level_dir."/rpmbuild/SOURCES/", { job_id => $job_id } ) && return );
+            if( $file_type =~ /(gzip|bzip2) compressed data/ ){
+                my $tar_args;
+                if( $file_type =~ /gzip compressed data/ ){
+                    $file_type = 'gzip';
+                    $tar_args .= " xvzf";
+                } elsif( $file_type =~ /bzip2 compressed data/ ){
+                    $file_type = 'bzip2';
+                    $tar_args .= " xvjf";
+                }
+                say "$tar_cmd $tar_args $downloaded_file_path 2>&1";
+                my @output = `$tar_cmd $tar_args $downloaded_file_path 2>&1`;
+                for my $line ( @output ){
+                    if( $line =~ /^\.*\/*(\S+)\s*$/ ){
+                        my $match = $1;
+                        push @$file_list, $match if $match !~ m|/$|;
+                    }
+                }
+            } elsif( $file_type =~ /Zip archive data/ ){
+                $file_type = 'zip';
+                say "$unzip_cmd -o $downloaded_file_path 2>&1";
+                my @output = `$unzip_cmd -o $downloaded_file_path 2>&1`;
+                for my $line ( @output ){
+                    if( $line =~ /^\s+inflating:\s+(\S+)\s*$/ ){
+                        push @$file_list, $1;
+                    }
+                }
+            } else {
+                $file_type = 'plain';
+                push @$file_list, $file->{RelPath};
+            }
+        }
+        $sub_job->{Group} = "Applications/Internet" if ! $sub_job->{Group};
+        $sub_job->{License} = "Proprietory" if ! $sub_job->{License};
+        $sub_job->{ChangeLog} = "n/a" if ! $sub_job->{ChangeLog};
+
+        my $output = $self->build_rpm( 
+                                        specfile => $specfile,
+                                        sub_job => $sub_job,
+                                        file_list => $file_list,
+                                      );
+        if( $output =~ /error/i ){
+            say $log "\tThere was an error producing the RPM: $output";
+            $status = COMPLETED_WITH_ERRORS;
+        } else {
+            my $rel_path;
+            if( $sub_job->{YumRepoSubPath} ){
+                $rel_path = join( '/', $self->repo->{rel_path}, $sub_job->{YumRepository} );
+            } else {
+                $rel_path = join( '/', $self->repo->{rel_path}, $sub_job->{Target}{Platform}, $sub_job->{Target}{Release} );
+            }
+            my $repo = join( '/', $self->repo->{dir}, $rel_path );
+            my $repo_url = join( '/', $self->repo->{served_at}, $rel_path );
+            my $rpm_url = join( '/', $repo_url, $rpm );
+            say $repo;
+            say $rpm;
+            say $repo_url;
+            $rpm_url =~ s|([^:])/+|$1/|g;
+            say $rpm_url;
+            eval {
+                make_path("$repo", { mode => 0755 });
+            };
+            if( $@ ){
+                $status = COMPLETED_WITH_ERRORS;
+                $message = $@;
+            } elsif( move( top_level_dir."/rpmbuild/RPMS/$sub_job->{Target}{Arch}/$rpm", "$repo/$rpm") ){
+                $self->update_rpm_url( $rpm_url, $job_id );
+                $status = COMPLETED_OK;
+                $overall_status++;
+            } else {
+                $status = COMPLETED_WITH_ERRORS;
+                $message = $!;
+            }
+            # Add the destination directory to the list of repositories to be updated at the end
+            $repos->{$repo} = 'blah';
+        }
+        $self->update_status( $status, $message, { job_id => $job_id } );
+    } else {
+        # Unknown Package format
+        $message = "Error: Unknown packaging format: $sub_job->{Target}{Package}";
+        say $log "\t$message";
+        $self->update_status( COMPLETED_WITH_ERRORS, $message, { job_id => $job_id } );
     }
-    close LOG;
-    
-    
 }
 
 sub update_status {
@@ -400,6 +489,8 @@ sub update_status {
     my $value = $query->{$field};
     chomp( $message );
 
+    $self->check_or_create_db;
+
     my $dbfile = top_level_dir."/".$self->queue_db_file;
     my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","") or die $!;
     my $sth = $dbh->prepare("UPDATE queue SET status = ?, message = ? WHERE $field = ?");
@@ -410,11 +501,33 @@ sub update_status {
     my $rc = $dbh->disconnect  or warn $dbh->errstr;
 
 }
+sub check_or_create_db {
+    my $self = shift;
+
+    my $dbfile = top_level_dir."/".$self->queue_db_file;
+    say $dbfile;
+    my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","") or die $!;
+    my $sth;
+    eval { $sth = $dbh->prepare("SELECT job_id FROM queue") };
+    #$sth->execute();
+    unless( $sth ){
+        say $self->app->config->{db_init};
+        for my $st ( @{ $self->app->config->{db_init} } ){
+            $dbh->do( $st );
+            #say Dumper( $dbh );
+        }
+        my $rc = $dbh->disconnect  or warn $dbh->errstr;
+    }
+    return SUCCESS;
+}
+
 
 sub update_rpm_url {
     my $self = shift;
     my $rpm_url = shift;
     my $job_id = shift;
+
+    $self->check_or_create_db;
 
     my $dbfile = top_level_dir."/".$self->queue_db_file;
     my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","") or die $!;
